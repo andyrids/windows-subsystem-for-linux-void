@@ -1,0 +1,4 @@
+﻿@{
+    IncludeDefaultRules = $true
+    ExcludeRules = @("PSAvoidUsingWriteHost")
+}

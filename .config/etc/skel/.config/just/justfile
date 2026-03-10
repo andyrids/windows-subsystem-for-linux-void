@@ -1,0 +1,52 @@
+# Strict mode; errexit, nounset & xtrace pipefail
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Pre-emptively add `uv` & `pnpm` default install paths to `$PATH`
+export PATH := env("HOME") + "/.local/share/pnpm:" + env("HOME") + "/.local/bin:" + env("PATH")
+
+[default]
+[doc("Shorthand for `just --list`")]
+_just-list:
+  @just --justfile {{justfile()}} --list
+
+[doc("Run `xbps-install -Su`")]
+xbps-su:
+  sudo xbps-install -Su
+
+[doc("Run `xbps-remove -Oo`")]
+xbps-oo:
+  sudo xbps-remove -Oo
+
+[doc("Install Astral `uv` [idempotent]")]
+install-uv:
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "Installing uv"
+    wget -qO- https://astral.sh/uv/install.sh | bash
+    echo "RUN: source $HOME/.local/bin/env"
+  else
+    echo "Found existing uv"
+  fi
+
+[doc("Install `pnpm` [idempotent]")]
+install-pnpm:
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  if ! command -v pnpm >/dev/null 2>&1; then
+    echo "Installing pnpm"
+    wget -qO- https://get.pnpm.io/install.sh | bash -
+    echo "RUN: source $HOME/.bashrc"
+  else
+      echo "Found existing pnpm"
+  fi
+
+[doc("Install the LTS version of `Node.js` [idempotent]")]
+pnpm-env: install-pnpm
+	pnpm env use --global lts && pnpm env list
+
+[doc("Update `pnpm`")]
+pnpm-update: install-pnpm
+	pnpm self-update
