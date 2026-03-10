@@ -29,7 +29,7 @@ install: _isadmin _isexecution
     #!pwsh.exe
     . .\Install-VoidLinux.ps1
 
-[doc("Run `PSScriptAnalyzer`")]
+[doc("Run `PSScriptAnalyzer` on `Install-VoidLinux.ps1`")]
 analyse:
     #!pwsh.exe
     Invoke-ScriptAnalyzer -Path ".\Install-VoidLinux.ps1" -Settings ".\PSScriptAnalyzerSettings.psd1" -ReportSummary
