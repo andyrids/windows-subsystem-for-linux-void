@@ -600,7 +600,6 @@ Invoke-Task -Name "Configuring ``runit`` services" -Critical -Steps @(
         $FindSocklog = "find /var/log/socklog/ -maxdepth 1 -type d -not -path /var/log/socklog/"
         $WriteConfig = 'while read -r dir; do echo -e "s1048576\nn2" | tee "$dir/config" > /dev/null; done'
         $Command = "$FindSocklog | $WriteConfig"
-        # $Command = 'for dir in /var/log/socklog/*/; do echo -e "s1048576\nn2" > "${dir}config"; done'
 
         $Log = wsl.exe -d $DistroName -u root -- /bin/bash -c "$Command" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Failed to apply `socklog` policies - $Log" }
@@ -680,11 +679,14 @@ Invoke-Task -Name "Creating default user ``void``" -Critical -Steps @(
         Grant passwordless sudo to the wheel group with `/etc/sudoers.d/wheel` instead of modifying
         the `/etc/sudoers` with `sed`.
         #>
-        # $Command = "echo '%wheel ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel && chmod 0440 /etc/sudoers.d/wheel"
-        $Command = "echo 'void ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/void && chmod 0440 /etc/sudoers.d/void"
+        $Command = "echo '%wheel ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel && chmod 0440 /etc/sudoers.d/wheel"
         $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command"
-
         if ($LASTEXITCODE -ne 0) { throw "Failed to grant passwordless sudo to the wheel group - $Log" }
+
+        # Validate syntax before committing
+        $Command = "visudo -cf /etc/sudoers.d/wheel || { rm -f /etc/sudoers.d/wheel; exit 1; }"
+        $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command"
+        if ($LASTEXITCODE -ne 0) { throw "Failed to validate ``/etc/sudoers.d/wheel`` - $Log" }
     }
 )
 
