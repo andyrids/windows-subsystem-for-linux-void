@@ -487,7 +487,7 @@ Invoke-Task -Name "Installing packages" -Critical -Steps @(
             "fastfetch",
             "git",
             "just",
-            "python",
+            "python3",
             "python3-devel",
             "tree",
             "fcron",
