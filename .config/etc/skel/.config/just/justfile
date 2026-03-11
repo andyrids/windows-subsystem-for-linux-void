@@ -2,7 +2,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 # Pre-emptively add `uv` & `pnpm` default install paths to `$PATH`
-export PATH := env("HOME") + "/.local/share/pnpm:" + env("HOME") + "/.local/bin:" + env("PATH")
+#export PATH := env("HOME") + "/.local/share/pnpm:" + env("HOME") + "/.local/bin:" + env("PATH")
 
 [default]
 [doc("Shorthand for `just --list`")]

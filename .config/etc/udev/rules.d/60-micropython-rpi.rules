@@ -4,7 +4,7 @@
 SUBSYSTEM=="tty", \
 ATTRS{idVendor}=="2e8a", \
 ATTRS{idProduct}=="0005", \
-MODE="0666", \
+MODE="0660", \
 GROUP="dialout", \
 SYMLINK+="/dev/ttyACM%n"
 
@@ -12,6 +12,6 @@ SYMLINK+="/dev/ttyACM%n"
 SUBSYSTEM=="tty", \
 ATTRS{idVendor}=="2e8a", \
 ATTRS{product}=="MicroPython*", \
-MODE="0666", \
+MODE="0660", \
 GROUP="dialout", \
 SYMLINK+="/dev/ttyACM%n"

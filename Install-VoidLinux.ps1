@@ -4,17 +4,17 @@
 
 <#
 .SYNOPSIS
-    This script bootstraps an Void Linux WSL2 distribution with dotfile configuration.
+    This script bootstraps a Void Linux WSL2 distribution with dotfile configuration.
 
 .DESCRIPTION
     This script downloads the latest version of Void Linux and bootstraps configuration on WSL with
     files from the `.config/` directory.
 
 .PARAMETER InstallDirectory
-    WSL distribution install path. Defaults to `%USERPROFILE%\WSL\Alpine`.
+    WSL distribution install path. Defaults to `%USERPROFILE%\WSL\Void`.
 
 .LINK
-    https://github.com/andyrids/windows-subsystem-for-linux-alpine
+    https://github.com/andyrids/windows-subsystem-for-linux-void
 #>
 
 param(
@@ -454,13 +454,13 @@ Invoke-Task -Name "Importing $LatestVersion" -Critical -Steps @(
 
 Invoke-Task -Name "Installing packages" -Critical -Steps @(
     {
-        $Command = "xbps-install -Syu"
+        $Command = "xbps-install -Syu --yes"
         $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
 
         # Handle a possible XBPS self-update requirement
         if (($LASTEXITCODE -ne 0) -and ($Log -match "xbps-install -u xbps")) {
-            $Command = "xbps-install -Syu xbps && $Command"
-            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
+            $RetryCommand = "xbps-install -Syu xbps --yes && xbps-install -Syu --yes"
+            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$RetryCommand" 2>&1
         }
 
         if ($LASTEXITCODE -ne 0) { throw "Failed to update indexes & packages - $Log" }
@@ -483,7 +483,7 @@ Invoke-Task -Name "Installing packages" -Critical -Steps @(
             "dos2unix"
         )
 
-        $Command = "xbps-install -y $($Packages -join ' ')"
+        $Command = "xbps-install --yes $($Packages -join ' ')"
         $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
 
         if ($LASTEXITCODE -ne 0) { throw "Failed to install packages - $Log" }
@@ -553,6 +553,7 @@ Invoke-Task -Name "Configuring ``runit`` services" -Critical -Steps @(
         $CommandList = [System.Collections.Generic.List[string]]::new()
 
         foreach ($Service in $Services) {
+            # test -d /etc/sv/$Service && ln -sfn /etc/sv/$Service /etc/runit/runsvdir/default/ || echo "WARN: /etc/sv/$Service not found" >&2
             # Target the persistent `/etc/runit/runsvdir/default/` NOT `/var/service/`
             $CommandList.Add("ln -s /etc/sv/$Service /etc/runit/runsvdir/default/ 2>/dev/null || true")
         }
@@ -569,10 +570,12 @@ Invoke-Task -Name "Configuring ``runit`` services" -Critical -Steps @(
         Apply strict log rotation limits to `svlogd` through a `config` file (1MB max, keep 2 files)
         inside EVERY `socklog` subdirectory.
         #>
+        $FindSocklog = "find /var/log/socklog/ -maxdepth 1 -type d -not -path /var/log/socklog/"
+        $WriteConfig = 'while read -r dir; do echo -e "s1048576\nn2" | tee "$dir/config" > /dev/null; done'
+        $Command = "$FindSocklog | $WriteConfig"
+        # $Command = 'for dir in /var/log/socklog/*/; do echo -e "s1048576\nn2" > "${dir}config"; done'
 
-        $Command = 'for dir in /var/log/socklog/*/; do echo -e "s1048576\nn2" > "${dir}config"; done'
-
-        $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
+        $Log = wsl.exe -d $DistroName -u root -- /bin/bash -c "$Command" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Failed to apply `socklog` policies - $Log" }
     }
 )
@@ -602,13 +605,13 @@ Invoke-Task -Name "Configuring Git" -Steps @(
         $GitBasePath = $GitCmdPath | Split-Path -Parent | Split-Path -Parent
         $GCMPath = Join-Path -Path $GitBasePath -ChildPath "mingw64\bin\git-credential-manager.exe"
 
+        # Update skeleton config for all users
+        $ConfigFile = "/etc/skel/.config/git/config"
+
         if (Test-Path -Path $GCMPath -PathType Leaf) {
             # $GCMLinuxPath = wsl.exe -d $DistroName wslpath -u "$GCMPath"
             # $GCMLinuxPath = wsl.exe -d $DistroName /bin/bash -c "printf '%q' '$GCMLinuxPath'"
             $GCMLinuxPath = wsl.exe -d $DistroName /bin/bash -c "printf '%q' `"`$(wslpath -u '$GCMPath')`""
-
-            # Update skeleton config for all users
-            $ConfigFile = "/etc/skel/.config/git/config"
 
             $Log = wsl.exe -d $DistroName git config set -f "$ConfigFile" credential.helper "$GCMLinuxPath"
             if ($LASTEXITCODE -ne 0) { throw "Error setting Git credential.helper - $Log" }
@@ -640,7 +643,7 @@ Invoke-Task -Name "Creating default user ``void``" -Critical -Steps @(
         and wheel, dialout & socklog group membership.
         #>
         $Groups = @("wheel", "dialout", "socklog")
-        $Command = "useradd -m -s /bin/bash void && usermod -aG $($Groups -join ',') void"
+        $Command = "id void >/dev/null 2>&1 || useradd -m -s /bin/bash void; usermod -aG $($Groups -join ',') void"
         $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command"
 
         if ($LASTEXITCODE -ne 0) { throw "Failed to create default user - $Log" }
@@ -650,7 +653,8 @@ Invoke-Task -Name "Creating default user ``void``" -Critical -Steps @(
         Grant passwordless sudo to the wheel group with `/etc/sudoers.d/wheel` instead of modifying
         the `/etc/sudoers` with `sed`.
         #>
-        $Command = "echo '%wheel ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel && chmod 0440 /etc/sudoers.d/wheel"
+        # $Command = "echo '%wheel ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel && chmod 0440 /etc/sudoers.d/wheel"
+        $Command = "echo 'void ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/void && chmod 0440 /etc/sudoers.d/void"
         $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command"
 
         if ($LASTEXITCODE -ne 0) { throw "Failed to grant passwordless sudo to the wheel group - $Log" }
