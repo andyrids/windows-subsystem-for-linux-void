@@ -526,7 +526,8 @@ Invoke-Task -Name "Importing bootstrap files" -Critical -Steps @(
         $DotConfigPath = Join-Path -Path $RootPath -ChildPath ".config"
 
         if (Test-Path $DotConfigPath) {
-            wsl.exe -d $DistroName -u root -- echo "INIT" | Out-Null;
+            $Log = wsl.exe -d $DistroName -u root -- /bin/true 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Distro '$DistroName' failed to start - $Log" }
 
             Push-Location $DotConfigPath
             try {
