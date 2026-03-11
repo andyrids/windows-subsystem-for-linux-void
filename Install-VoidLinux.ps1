@@ -481,18 +481,6 @@ Invoke-Task -Name "Importing $LatestVersion" -Critical -Steps @(
 
 Invoke-Task -Name "Installing packages" -Critical -Steps @(
     {
-        $Command = "xbps-install -Syu --yes"
-        $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
-
-        # Handle a possible XBPS self-update requirement
-        if (($LASTEXITCODE -ne 0) -and ($Log -match "xbps-install -u xbps")) {
-            $RetryCommand = "xbps-install -Syu xbps --yes && xbps-install -Syu --yes"
-            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$RetryCommand" 2>&1
-        }
-
-        if ($LASTEXITCODE -ne 0) { throw "Failed to update indexes & packages - $Log" }
-    },
-    {
         $Packages = @(
             "util-linux",
             "base-devel",
@@ -510,10 +498,18 @@ Invoke-Task -Name "Installing packages" -Critical -Steps @(
             "dos2unix"
         )
 
-        $Command = "xbps-install --yes $($Packages -join ' ')"
+        $Command = "xbps-install -Syu --yes $($Packages -join ' ')"
         $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
 
-        if ($LASTEXITCODE -ne 0) { throw "Failed to install packages - $Log" }
+        # Handle a possible XBPS self-update requirement
+        if (($LASTEXITCODE -ne 0) -and ($Log -match "xbps-install -u xbps")) {
+            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "xbps-install -Syu xbps --yes" 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Failed to self-update ``xbps`` - $Log" }
+
+            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
+        }
+
+        if ($LASTEXITCODE -ne 0) { throw "Failed to update indexes & packages - $Log" }
     }
 )
 
