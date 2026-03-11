@@ -411,7 +411,6 @@ $DistroName = "Void-${VersionString}"
 $TarFile = Join-Path $RootPath $LatestVersion
 
 if (-not (Test-Path $TarFile)) {
-
     Invoke-Task -Name "Downloading $LatestVersion" -Critical -Steps @(
         {
             try {
@@ -442,6 +441,10 @@ if (-not (Test-Path $TarFile)) {
                 throw "SHA256 hash ($RemoteHash) mismatch with $TarFile ($LocalHash)"
             }
         }
+    )
+} else {
+    Invoke-Task -Name "Verifying cached $LatestVersion" -Critical -Steps @(
+        { Test-TarfileHash -TarFile $TarFile -CheckSumURL "${VOID_CDN}sha256sum.txt" -LatestVersion $LatestVersion }
     )
 }
 
@@ -667,7 +670,7 @@ Invoke-Task -Name "Creating default user ``void``" -Critical -Steps @(
         and wheel, dialout & socklog group membership.
         #>
         $Groups = @("wheel", "dialout", "socklog")
-        $Command = "id void >/dev/null 2>&1 || useradd -m -s /bin/bash void; usermod -aG $($Groups -join ',') void"
+        $Command = "id void >/dev/null 2>&1 || useradd -m -s /bin/bash void && usermod -aG $($Groups -join ',') void"
         $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command"
 
         if ($LASTEXITCODE -ne 0) { throw "Failed to create default user - $Log" }
