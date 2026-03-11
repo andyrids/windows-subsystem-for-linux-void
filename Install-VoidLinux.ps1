@@ -296,7 +296,7 @@ function Invoke-TerminateDistribution {
 # INITIALISATION
 # -----------------------------------------------------------------------------
 
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 
 $RootPath = if ($PSScriptRoot) { $PSScriptRoot } else { $PWD }
 $DEFAULT_WSL_PATH = Join-Path -Path $env:USERPROFILE -ChildPath "WSL\Void"
