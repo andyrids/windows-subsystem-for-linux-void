@@ -322,7 +322,7 @@ if ([string]::IsNullOrWhiteSpace($InstallDirectory)) {
 Invoke-Task -Name "Checking PATH" -Critical -Steps @(
     {
         $Script:InstallDirectory = [Environment]::ExpandEnvironmentVariables($InstallDirectory)
-        $Script:InstallDirectory = $InstallDirectory -replace '"',''
+        $Script:InstallDirectory = $Script:InstallDirectory -replace '"',''
         $Script:InstallDirectory = [System.IO.Path]::GetFullPath($Script:InstallDirectory)
 
         if (-not (Test-Path -Path $Script:InstallDirectory)) {
@@ -383,6 +383,30 @@ Invoke-Task -Name "Checking Void CDN" -Critical -Steps @(
     }
 )
 
+
+function Test-TarfileHash {
+    [CmdletBinding()]
+    param(
+        [string]$TarFile,
+        [string]$CheckSumURL,
+        [string]$LatestVersion
+    )
+
+    process {
+        $Content = (Invoke-WebRequest -Uri $CheckSumURL -UseBasicParsing).Content
+        if ($content -is [byte[]]) { $Content = [System.Text.Encoding]::UTF8.GetString($Content) }
+        $TargetLine = $Content -split "`n" | Where-Object { $_ -match [regex]::Escape($LatestVersion) }
+        if (-not $TargetLine) { throw "Hash line not found for $LatestVersion" }
+        $RemoteHash = $TargetLine.Split("=")[-1].Trim().ToLower()
+        $LocalHash  = (Get-FileHash -Path $TarFile -Algorithm SHA256).Hash.ToLower()
+        if ($RemoteHash -ne $LocalHash) {
+            Remove-Item $TarFile -Force
+            throw "SHA256 mismatch for cached $TarFile (expected $RemoteHash, got $LocalHash). File deleted."
+    }
+    }
+}
+
+
 $DistroName = "Void-${VersionString}"
 $TarFile = Join-Path $RootPath $LatestVersion
 
@@ -431,7 +455,7 @@ Invoke-Task -Name "Importing $LatestVersion" -Critical -Steps @(
     {
         # Check existing distributions
         $DistroList = wsl.exe --list --quiet | ForEach-Object { ($_ -replace "`0", "").Trim() }
-        if ($DistroList | Select-String -Pattern $DistroName) {
+        if ($DistroList | Select-String -Pattern ([regex]::Escape($DistroName))) {
             throw "'$DistroName' exists; unregister before reinstall - ``wsl --unregister $DistroName``"
         }
 
