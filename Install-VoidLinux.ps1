@@ -277,15 +277,16 @@ function Invoke-TerminateDistribution {
             {
                 # Trigger runit stage 3 to stop any daemons if `runsvdir` is running
                 $Command = "if pidof runsvdir > /dev/null 2>&1; then /etc/runit/3; fi"
-                wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command"
+                $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
+                if ($LASTEXITCODE -ne 0) {}
 
                 # Force a sync inside Linux first to flush buffers
-                wsl.exe -d $DistroName -u root -- /bin/sh -c "sync"
+                wsl.exe -d $DistroName -u root -- /bin/sh -c "sync" | Out-Null
 
                 # Wait for Windows host to finalise I/O operations
                 Start-Sleep -Seconds 2
 
-                $Log = wsl.exe --terminate $DistroName
+                $Log = wsl.exe --terminate $DistroName 2>&1
                 if ($LASTEXITCODE -ne 0) { throw " - Failed to terminate $DistroName - $Log" }
             }
         )
@@ -497,19 +498,25 @@ Invoke-Task -Name "Installing packages" -Critical -Steps @(
             "socklog-void",
             "dos2unix"
         )
+        # Attempt an upgrade of `xbps`
+        $Command = "xbps-install -Su --yes xbps"
+        wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1 | Out-Null
 
-        $Command = "xbps-install -Syu --yes $($Packages -join ' ')"
+        # Full system upgrade
+        $Command = "xbps-install -Su --yes"
         $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Failed to upgrade base system - $Log" }
 
-        # Handle a possible XBPS self-update requirement
-        if (($LASTEXITCODE -ne 0) -and ($Log -match "xbps-install -u xbps")) {
-            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "xbps-install -Syu xbps --yes" 2>&1
-            if ($LASTEXITCODE -ne 0) { throw "Failed to self-update ``xbps`` - $Log" }
-
-            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
-        }
-
-        if ($LASTEXITCODE -ne 0) { throw "Failed to update indexes & packages - $Log" }
+        # Install required packages
+        $Command = "xbps-install --yes $($Packages -join ' ')"
+        $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Failed to install required packages - $Log" }
+    },
+    {
+        # Remove orphaned packages
+        $Command = "xbps-remove -Oo"
+        $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Failed to remove orphaned packages - $Log" }
     }
 )
 
@@ -568,7 +575,7 @@ Invoke-Task -Name "Configuring ``runit`` services" -Critical -Steps @(
         wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1 | Out-Null
 
         $Services = @(
-            "udevd",        # Device management
+            "udevd",        # Device management (passthrough via `usbipd-win`)
             "socklog-unix", # Logging daemon (`/var/log/socklog/`)
             "nanoklogd",    # Kernel logging
             "fcron"         # Cron daemon

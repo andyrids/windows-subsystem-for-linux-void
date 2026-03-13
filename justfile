@@ -27,7 +27,7 @@ _isexecution:
 [doc("Run `Install-VoidLinux.ps1`")]
 install: _isadmin _isexecution
     #!pwsh.exe
-    . .\Install-VoidLinux.ps1
+    & .\Install-VoidLinux.ps1
 
 [doc("Run `PSScriptAnalyzer` on `Install-VoidLinux.ps1`")]
 analyse:

@@ -5,7 +5,7 @@
 # \[...\] non-printing wrappers that ash does not understand.
 
 # Skip entirely when running under bash
-[ -n "$BASH_VERSION" ] && return 2>/dev/null
+if [ -n "$BASH_VERSION" ]; then return; fi
 
 # Enable colour support for the terminal
 case "$TERM" in
