@@ -278,7 +278,7 @@ function Invoke-TerminateDistribution {
                 # Trigger runit stage 3 to stop any daemons if `runsvdir` is running
                 $Command = "if pidof runsvdir > /dev/null 2>&1; then /etc/runit/3; fi"
                 $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
-                if ($LASTEXITCODE -ne 0) {}
+                if ($LASTEXITCODE -ne 0) { Write-Warning "`/etc/runit/3` exit status $LASTEXITCODE" }
 
                 # Force a sync inside Linux first to flush buffers
                 wsl.exe -d $DistroName -u root -- /bin/sh -c "sync" | Out-Null
@@ -299,7 +299,15 @@ function Invoke-TerminateDistribution {
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 
-$RootPath = if ($PSScriptRoot) { $PSScriptRoot } else { $PWD }
+# Resolve `InstallVoidLinux.ps1` location regardless of invocation method
+$RootPath = if ($PSScriptRoot) {
+    $PSScriptRoot
+} elseif ($MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+} else {
+    $PWD.Path
+}
+
 $DEFAULT_WSL_PATH = Join-Path -Path $env:USERPROFILE -ChildPath "WSL\Void"
 
 Clear-Host
@@ -396,14 +404,20 @@ function Test-TarfileHash {
     process {
         $Content = (Invoke-WebRequest -Uri $CheckSumURL -UseBasicParsing).Content
         if ($content -is [byte[]]) { $Content = [System.Text.Encoding]::UTF8.GetString($Content) }
-        $TargetLine = $Content -split "`n" | Where-Object { $_ -match [regex]::Escape($LatestVersion) }
+            $TargetLine = $Content -split "`n" | Where-Object { $_ -match [regex]::Escape($LatestVersion) }
+
         if (-not $TargetLine) { throw "Hash line not found for $LatestVersion" }
-        $RemoteHash = $TargetLine.Split("=")[-1].Trim().ToLower()
-        $LocalHash  = (Get-FileHash -Path $TarFile -Algorithm SHA256).Hash.ToLower()
+            $RemoteHash = ($TargetLine -split '=\s*')[-1].Trim().ToLower()
+            if ($RemoteHash -notmatch '^[0-9a-f]{64}$') {
+                Remove-Item $TarFile -Force
+                throw "Hash ($RemoteHash) does not look like a valid SHA256 digest."
+            }
+            $LocalHash  = (Get-FileHash -Path $TarFile -Algorithm SHA256).Hash.ToLower()
+
         if ($RemoteHash -ne $LocalHash) {
             Remove-Item $TarFile -Force
             throw "SHA256 mismatch for cached $TarFile (expected $RemoteHash, got $LocalHash). File deleted."
-    }
+        }
     }
 }
 
@@ -417,37 +431,13 @@ if (-not (Test-Path $TarFile)) {
             try {
                 Invoke-WebRequest -Uri "${VOID_CDN}${LatestVersion}" -OutFile $TarFile -UseBasicParsing
             } catch { throw $_ }
-        },
-        {
-            try {
-                $CheckSumURL = "${VOID_CDN}sha256sum.txt"
-                $CheckSumContent = (Invoke-WebRequest -Uri "$CheckSumURL" -UseBasicParsing).Content
-
-                if ($CheckSumContent -is [byte[]]) {
-                    $CheckSumContent = [System.Text.Encoding]::UTF8.GetString($CheckSumContent)
-                }
-
-            } catch { throw $_ }
-
-            $TargetHash = $CheckSumContent -split "`n" | Where-Object { $_ -match [regex]::Escape($LatestVersion) }
-            if (-not $TargetHash) {
-                throw "Could not identify correct hash for $LatestVersion in $CheckSumURL"
-            }
-
-            $RemoteHash = $TargetHash.Split("=")[-1].Trim().ToLower()
-            $LocalHash = (Get-FileHash -Path $TarFile -Algorithm SHA256).Hash.ToLower()
-
-            if ($RemoteHash -ne $LocalHash) {
-                Remove-Item $TarFile -Force
-                throw "SHA256 hash ($RemoteHash) mismatch with $TarFile ($LocalHash)"
-            }
         }
     )
-} else {
-    Invoke-Task -Name "Verifying cached $LatestVersion" -Critical -Steps @(
-        { Test-TarfileHash -TarFile $TarFile -CheckSumURL "${VOID_CDN}sha256sum.txt" -LatestVersion $LatestVersion }
-    )
 }
+
+Invoke-Task -Name "Verifying $LatestVersion" -Critical -Steps @(
+    { Test-TarfileHash -TarFile $TarFile -CheckSumURL "${VOID_CDN}sha256sum.txt" -LatestVersion $LatestVersion }
+)
 
 # -----------------------------------------------------------------------------
 # IMPORT VOID LINUX DISTRO
@@ -514,7 +504,7 @@ Invoke-Task -Name "Installing packages" -Critical -Steps @(
     },
     {
         # Remove orphaned packages
-        $Command = "xbps-remove -Oo"
+        $Command = "xbps-remove -Oo --yes"
         $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Failed to remove orphaned packages - $Log" }
     }
@@ -602,7 +592,7 @@ Invoke-Task -Name "Configuring ``runit`` services" -Critical -Steps @(
         inside EVERY `socklog` subdirectory.
         #>
         $FindSocklog = "find /var/log/socklog/ -maxdepth 1 -type d -not -path /var/log/socklog/"
-        $WriteConfig = 'while read -r dir; do echo -e "s1048576\nn2" | tee "$dir/config" > /dev/null; done'
+        $WriteConfig = 'while read -r dir; do printf "s1048576\nn2" | tee "$dir/config" > /dev/null; done'
         $Command = "$FindSocklog | $WriteConfig"
 
         $Log = wsl.exe -d $DistroName -u root -- /bin/bash -c "$Command" 2>&1

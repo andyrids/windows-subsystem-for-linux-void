@@ -4,5 +4,9 @@ if [ -t 0 ]; then
     # Only reset if on an interactive terminal
     clear
 fi
-echo ".bash_logout"
+
 history -c && history -w 2>/dev/null || true
+
+if pidof runsvdir > /dev/null 2>&1; then
+    sudo /etc/runit/3;
+fi

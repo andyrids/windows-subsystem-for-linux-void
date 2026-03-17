@@ -38,7 +38,8 @@ git clone --depth=1 git@github.com:andyrids/windows-subsystem-for-linux-void.git
 Run the `PowerShell` installation script.
 
 ```ps1
-. .\windows-subsystem-for-linux-void\Install-VoidLinux.ps1`
+cd .\windows-subsystem-for-linux-void\
+. Install-VoidLinux.ps1
 ```
 
 If you have `Just` installed, there is a [`justfile`](justfile) provided with an `install` recipe. 
