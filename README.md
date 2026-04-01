@@ -42,7 +42,7 @@ cd .\windows-subsystem-for-linux-void\
 . Install-VoidLinux.ps1
 ```
 
-If you have `Just` installed, there is a [`justfile`](justfile) provided with an `install` recipe. 
+If you have `Just` installed, there is a [`justfile`](Justfile) provided with an `install` recipe. 
 
 ```ps1
 cd .\windows-subsystem-for-linux-void\
