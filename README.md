@@ -201,20 +201,15 @@ The Void distro undergoes a structured shutdown sequence. A script is triggered 
 | xbps-query -l                                | List installed packages                                 |
 | sudo xbps-remove -Ro <package>               | Remove package & any sole dependencies for that package |
 | sudo xbps-remove -Oo                         | Remove system-wide orphaned packages                    |
-| just -g                                      | List recipes in the `$HOME/.config/just/justfile`       |
+| just -g                                      | List recipes in the `$HOME/.config/just/Justfile`       |
 
-There is a global `$HOME/.config/just/justfile`, which contains some potentially useful recipes. The documentation for these recipes can be displayed with the `just -g` command. The recipes within this file can be ran using `just -g <recipe-name>`.
+There is a global `$HOME/.config/just/Justfile`, which contains some potentially useful recipes. The documentation for these recipes can be displayed with the `just -g` command. The recipes within this file can be ran using `just -g <recipe-name>`.
 
 ```bash
 void@andyr:~$ just -g
-Available recipes:
-    install-pnpm # Install `pnpm` [idempotent]
-    install-uv   # Install Astral `uv` [idempotent]
-    pnpm-env     # Install the LTS version of `Node.js` [idempotent]
-    pnpm-update  # Update `pnpm`
-    xbps-oo      # Run `xbps-remove -Oo`
-    xbps-su      # Run `xbps-install -Su`
 ```
+
+![Justfile](/docs/img/justfile-recipes.png)
 
 For example, there is a recipe for the installation of the Astral `uv` Python package manager and for `pnpm`. To install `uv`, `pnpm` and the LTS version of `Node.js`, you could run the following recipes:
 
