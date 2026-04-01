@@ -206,7 +206,7 @@ The Void distro undergoes a structured shutdown sequence. A script is triggered 
 There is a global `$HOME/.config/just/Justfile`, which contains some potentially useful recipes. The documentation for these recipes can be displayed with the `just -g` command. The recipes within this file can be ran using `just -g <recipe-name>`.
 
 ```bash
-void@andyr:~$ just -g
+just -g
 ```
 
 ![Justfile](/docs/img/justfile-recipes.png)
