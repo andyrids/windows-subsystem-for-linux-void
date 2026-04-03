@@ -99,3 +99,13 @@ install-podman-compose: install-uv
     echo "Found existing podman-compose package"
   fi
 
+
+[doc("Install `dive` `Docker` image exploration tool")]
+[group("DEV")]
+install-dive: xbps-su
+  #!/usr/bin/env bash
+  if ! command -v dive >/dev/null 2>&1 && [ ! -f "/usr/sbin/dive" ]; then
+    sudo xbps-install dive
+  else
+    echo "Found existing dive package"
+  fi
