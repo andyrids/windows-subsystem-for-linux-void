@@ -13,13 +13,18 @@
 .PARAMETER InstallDirectory
     WSL distribution install path. Defaults to `%USERPROFILE%\WSL\Void`.
 
+.PARAMETER DistroName
+    Optional WSL distribution name. Defaults to `Void-<version>`.
+
 .LINK
     https://github.com/andyrids/windows-subsystem-for-linux-void
 #>
 
 param(
     [Parameter(Mandatory=$false)]
-    [string]$InstallDirectory
+    [string]$InstallDirectory,
+    [Parameter(Mandatory=$false)]
+    [string]$DistroName
 )
 
 $Script:ImageImported = $false
@@ -34,6 +39,10 @@ $Script:Theme = @{
     ColorSuccess= "Green"
     ColorFail   = "Red"
     ColorDim    = "Gray"
+}
+
+if ($PSVersionTable.PSVersion.Major -ge 7 -and $PSStyle -and $PSStyle.Progress) {
+    $PSStyle.Progress.View = 'Minimal'
 }
 
 $Script:AsciiArt = @"
@@ -123,6 +132,25 @@ function Reset-CursorPosition {
 
 
 function Show-TaskProgress {
+    <#
+    .SYNOPSIS
+        Displays the progress of a task.
+
+    .DESCRIPTION
+        Displays the progress of a task with a status indicator.
+
+    .PARAMETER TaskName
+        The name of the task.
+
+    .PARAMETER TaskResult
+        The result of the task. Valid values are "NONE", "OK", "WARN", "FAIL".
+
+    .PARAMETER ToTitleCase
+        A switch indicating whether to convert the task name to title case.
+
+    .EXAMPLE
+        Show-TaskProgress -TaskName "Task One" -TaskResult "OK"
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Position=0, Mandatory)]
@@ -144,21 +172,15 @@ function Show-TaskProgress {
         $TaskNameDisplay = $TextInfo.ToTitleCase($TaskNameDisplay)
     }
 
-    $Indent = " "
-
     $Status = switch ($TaskResult) {
-        "NONE" { @{ Object = "[....]"; ForegroundColor = "Gray";   NoNewline = $true } }
-        "OK"   { @{ Object = "[ OK ]"; ForegroundColor = "Green";  NoNewline = $true } }
-        "WARN" { @{ Object = "[WARN]"; ForegroundColor = "Yellow"; NoNewline = $true } }
-        "FAIL" { @{ Object = "[FAIL]"; ForegroundColor = "Red";    NoNewline = $true } }
+        "NONE" { @{ Object = "[....]"; ForegroundColor = "Gray" } }
+        "OK"   { @{ Object = "[ OK ]"; ForegroundColor = "Green" } }
+        "WARN" { @{ Object = "[WARN]"; ForegroundColor = "Yellow" } }
+        "FAIL" { @{ Object = "[FAIL]"; ForegroundColor = "Red" } }
     }
 
-    Write-Host ("`r" + $Indent) -NoNewline
-    Write-Host @Status
-
-    $TaskNamePadded = "$TaskNameDisplay".PadRight(58)
-
-    Write-Host "$TaskNamePadded" -NoNewline:($TaskResult -in @("NONE", "OK"))
+    Write-Host " $($Status.Object)" -ForegroundColor $Status.ForegroundColor -NoNewline
+    Write-Host "$TaskNameDisplay"
 }
 
 
@@ -226,13 +248,28 @@ function Invoke-Task {
     )
 
     process {
-        Show-TaskProgress -TaskName $Name -TaskResult NONE -ToTitleCase:$ToTitleCase
+        $TaskNameDisplay = if ($ToTitleCase) {
+            " $((Get-Culture).TextInfo.ToTitleCase($Name))"
+        } else {
+            " $Name"
+        }
+
+        $StepCount = [Math]::Max($Steps.Count, 1)
+        $ProgressId = 1
+
         try {
-            # Run `ScriptBlock` logic within `Steps`
-            foreach ($Step in $Steps) { & $Step }
+            for ($StepIndex = 0; $StepIndex -lt $Steps.Count; $StepIndex++) {
+                $Percent = [int]((($StepIndex + 1) / $StepCount) * 100)
+                Write-Progress -Id $ProgressId -Activity $TaskNameDisplay -Status "Step $($StepIndex + 1) of $StepCount" -PercentComplete $Percent
+
+                & $Steps[$StepIndex]
+            }
+
+            Write-Progress -Id $ProgressId -Activity $TaskNameDisplay -Completed
             Show-TaskProgress -TaskName $Name -TaskResult OK -ToTitleCase:$ToTitleCase
             Start-Sleep -Milliseconds 400
         } catch {
+            Write-Progress -Id $ProgressId -Activity $TaskNameDisplay -Completed
             $Result = if ($Critical) { "FAIL" } else { "WARN" }
             Show-TaskProgress -TaskName $Name -TaskResult $Result -ToTitleCase:$ToTitleCase
             Show-TaskErrorMessage -ErrorRecord $_
@@ -293,6 +330,128 @@ function Invoke-TerminateDistribution {
     }
 }
 
+
+function Get-LatestRootfsVersion {
+    <#
+    .SYNOPSIS
+        Resolves the latest Void x86_64 ROOTFS tarball from CDN links.
+
+    .DESCRIPTION
+        Parses ROOTFS filenames, validates their YYYYMMDD date token and returns
+        the newest version by date.
+
+    .PARAMETER Links
+        Collection of links from Invoke-WebRequest response.
+
+    .EXAMPLE
+        $VersionInfo = Get-LatestRootfsVersion -Links $Response.Links
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [Object[]]
+        $Links
+    )
+
+    process {
+        $CandidatePattern = '^void-x86_64-ROOTFS-(\d{8})\.tar\.xz$'
+
+        $Candidates = foreach ($Link in $Links) {
+            if (-not $Link.href) { continue }
+
+            $Match = [regex]::Match($Link.href, $CandidatePattern)
+            if (-not $Match.Success) { continue }
+
+            $DateToken = $Match.Groups[1].Value
+            try {
+                $ParsedDate = [DateTime]::ParseExact(
+                    $DateToken, 'yyyyMMdd', [System.Globalization.CultureInfo]::InvariantCulture
+                )
+            }
+            catch {
+                continue
+            }
+
+            [PSCustomObject]@{
+                FileName = $Link.href
+                Date     = $ParsedDate
+            }
+        }
+
+        if (-not $Candidates) {
+            throw 'No valid ROOTFS versions were found in CDN response.'
+        }
+
+        $Latest = $Candidates |
+            Sort-Object -Property Date, FileName |
+            Select-Object -Last 1
+
+        [PSCustomObject]@{
+            LatestVersion = $Latest.FileName
+            VersionString = $Latest.Date.ToString('yyyy.MM.dd')
+        }
+    }
+}
+
+
+function Invoke-WebRequestWithRetry {
+    <#
+    .SYNOPSIS
+        Invokes Invoke-WebRequest with retry and timeout handling.
+
+    .PARAMETER Uri
+        Request URI.
+
+    .PARAMETER OutFile
+        Optional output file path for downloads.
+
+    .PARAMETER TimeoutSec
+        Per-attempt request timeout in seconds.
+
+    .PARAMETER MaxAttempts
+        Maximum number of request attempts.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Uri,
+        [Parameter(Mandatory = $false)]
+        [string]$OutFile,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(5, 300)]
+        [int]$TimeoutSec = 30,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(1, 6)]
+        [int]$MaxAttempts = 3
+    )
+
+    process {
+        for ($Attempt = 1; $Attempt -le $MaxAttempts; $Attempt++) {
+            try {
+                $RequestParams = @{
+                    Uri             = $Uri
+                    UseBasicParsing = $true
+                    TimeoutSec      = $TimeoutSec
+                    ErrorAction     = "Stop"
+                }
+
+                if ($PSBoundParameters.ContainsKey("OutFile")) {
+                    $RequestParams["OutFile"] = $OutFile
+                }
+
+                return Invoke-WebRequest @RequestParams
+            }
+            catch {
+                if ($Attempt -eq $MaxAttempts) {
+                    throw "Request failed for '$Uri' after $MaxAttempts attempts - $($_.Exception.Message)"
+                }
+
+                Start-Sleep -Seconds ([Math]::Min($Attempt * 2, 6))
+            }
+        }
+    }
+}
+
 # -----------------------------------------------------------------------------
 # INITIALISATION
 # -----------------------------------------------------------------------------
@@ -318,18 +477,15 @@ Show-Header
 # -----------------------------------------------------------------------------
 
 if ([string]::IsNullOrWhiteSpace($InstallDirectory)) {
-    $InputPath = Read-Host " Enter PATH [$DEFAULT_WSL_PATH]"
-    Write-Host ""
-
-    if ([string]::IsNullOrWhiteSpace($InputPath)) {
-        $InstallDirectory = $DEFAULT_WSL_PATH
-    } else {
-        $InstallDirectory = $InputPath
-    }
+    $InstallDirectory = $DEFAULT_WSL_PATH
 }
 
-Invoke-Task -Name "Checking PATH" -Critical -Steps @(
+Invoke-Task -Name "Checking installation PATH" -Critical -Steps @(
     {
+        if ($InstallDirectory -match '[\x00-\x1F]') {
+            throw 'Install path contains unsupported control characters.'
+        }
+
         $Script:InstallDirectory = [Environment]::ExpandEnvironmentVariables($InstallDirectory)
         $Script:InstallDirectory = $Script:InstallDirectory -replace '"',''
         $Script:InstallDirectory = [System.IO.Path]::GetFullPath($Script:InstallDirectory)
@@ -344,6 +500,12 @@ Invoke-Task -Name "Checking PATH" -Critical -Steps @(
     }
 )
 
+Invoke-Task -Name "Checking prerequisites" -Critical -Steps @(
+    {
+        $Null = Get-Command -Name tar.exe -ErrorAction Stop
+    }
+)
+
 # -----------------------------------------------------------------------------
 # WSL SERVICE CHECKS
 # -----------------------------------------------------------------------------
@@ -353,6 +515,14 @@ Invoke-Task -Name "Checking ``WslService`` status" -Critical -Steps @(
         $WSLService = Get-Service -Name WslService -ErrorAction Stop
         if ($WSLService.StartupType -eq 'Disabled') {
             Set-Service -Name WslService -StartupType Automatic -ErrorAction Stop
+        }
+
+        if ($WSLService.Status -ne 'Running') {
+            Start-Service -Name WslService -ErrorAction Stop
+            $WSLService = Get-Service -Name WslService -ErrorAction Stop
+            if ($WSLService.Status -ne 'Running') {
+                throw 'WslService is not running after start attempt.'
+            }
         }
     }
 )
@@ -375,18 +545,12 @@ $VersionString = $null
 
 Invoke-Task -Name "Checking Void CDN" -Critical -Steps @(
     {
-        $Response = Invoke-WebRequest -Uri $VOID_CDN -SkipHttpErrorCheck -UseBasicParsing
+        $Response = Invoke-WebRequestWithRetry -Uri $VOID_CDN
         if ($Response.StatusCode -ne 200) { throw "$VOID_CDN - HTTP $($Response.StatusCode)" }
 
-        $Versions = $Response.Links |
-            Where-Object { $_.href -Like "void-x86_64-ROOTFS*tar.xz" } |
-            Select-Object -ExpandProperty href -Unique
-
-        $Script:LatestVersion = $Versions | Select-Object -Last 1
-
-        $Script:VersionString = $Script:LatestVersion |
-            Select-String -Pattern '.+([0-9]{4})([0-9]{2})([0-9]{2})\.tar\.xz' |
-            ForEach-Object { $_.Matches.Groups[1..3].Value -join "." }
+        $VersionInfo = Get-LatestRootfsVersion -Links $Response.Links
+        $Script:LatestVersion = $VersionInfo.LatestVersion
+        $Script:VersionString = $VersionInfo.VersionString
 
         if (-not $Script:VersionString) { throw "Version parsing error - '$Script:LatestVersion'" }
     }
@@ -402,35 +566,99 @@ function Test-TarfileHash {
     )
 
     process {
-        $Content = (Invoke-WebRequest -Uri $CheckSumURL -UseBasicParsing).Content
-        if ($content -is [byte[]]) { $Content = [System.Text.Encoding]::UTF8.GetString($Content) }
-            $TargetLine = $Content -split "`n" | Where-Object { $_ -match [regex]::Escape($LatestVersion) }
+        $Content = (Invoke-WebRequestWithRetry -Uri $CheckSumURL).Content
+        if ($Content -is [byte[]]) { $Content = [System.Text.Encoding]::UTF8.GetString($Content) }
 
-        if (-not $TargetLine) { throw "Hash line not found for $LatestVersion" }
-            $RemoteHash = ($TargetLine -split '=\s*')[-1].Trim().ToLower()
-            if ($RemoteHash -notmatch '^[0-9a-f]{64}$') {
-                Remove-Item $TarFile -Force
-                throw "Hash ($RemoteHash) does not look like a valid SHA256 digest."
+        $EscapedVersion = [regex]::Escape($LatestVersion)
+        $RemoteHash = $null
+
+        foreach ($Line in ($Content -split "`r?`n")) {
+            if ($Line -match "^SHA256\s*\($EscapedVersion\)\s*=\s*([0-9a-fA-F]{64})\s*$") {
+                $RemoteHash = $Matches[1].ToLower()
+                break
             }
-            $LocalHash  = (Get-FileHash -Path $TarFile -Algorithm SHA256).Hash.ToLower()
+
+            if ($Line -match "^([0-9a-fA-F]{64})\s+\*?$EscapedVersion\s*$") {
+                $RemoteHash = $Matches[1].ToLower()
+                break
+            }
+        }
+
+        if (-not $RemoteHash) {
+            throw "Hash line not found or malformed for $LatestVersion"
+        }
+
+        $LocalHash  = (Get-FileHash -Path $TarFile -Algorithm SHA256).Hash.ToLower()
 
         if ($RemoteHash -ne $LocalHash) {
-            Remove-Item $TarFile -Force
+            Remove-Item $TarFile -Force -ErrorAction SilentlyContinue
             throw "SHA256 mismatch for cached $TarFile (expected $RemoteHash, got $LocalHash). File deleted."
         }
     }
 }
 
 
-$DistroName = "Void-${VersionString}"
+$DefaultDistroName = "Void-${VersionString}"
 $TarFile = Join-Path $RootPath $LatestVersion
+
+Invoke-Task -Name "Resolving distro name" -Critical -Steps @(
+    {
+        $DistroList = wsl.exe --list --quiet |
+            ForEach-Object { ($_ -replace "`0", "").Trim() } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+        $RequestedName = if ([string]::IsNullOrWhiteSpace($DistroName)) {
+            $DefaultDistroName
+        } else {
+            $DistroName.Trim()
+        }
+
+        if ([string]::IsNullOrWhiteSpace($RequestedName)) {
+            throw 'Distro name is empty. Provide -DistroName <name>.'
+        }
+
+        if ($DistroList -contains $RequestedName) {
+            if (-not [string]::IsNullOrWhiteSpace($DistroName)) {
+                throw "Distro '$RequestedName' already exists; choose another with -DistroName <name>."
+            }
+
+            $SuggestedName = "$DefaultDistroName-test"
+            while ($true) {
+                $InputName = Read-Host " Enter distro name [$SuggestedName]"
+                if ([string]::IsNullOrWhiteSpace($InputName)) {
+                    $InputName = $SuggestedName
+                }
+
+                $InputName = $InputName.Trim()
+
+                if ([string]::IsNullOrWhiteSpace($InputName)) {
+                    continue
+                }
+
+                if ($DistroList -contains $InputName) {
+                    Write-Host "  - '$InputName' already exists" -ForegroundColor Yellow
+                    $SuggestedName = "$InputName-test"
+                    continue
+                }
+
+                $RequestedName = $InputName
+                break
+            }
+        }
+
+        $Script:DistroName = $RequestedName
+    }
+)
+
+$DistroName = $Script:DistroName
 
 if (-not (Test-Path $TarFile)) {
     Invoke-Task -Name "Downloading $LatestVersion" -Critical -Steps @(
         {
-            try {
-                Invoke-WebRequest -Uri "${VOID_CDN}${LatestVersion}" -OutFile $TarFile -UseBasicParsing
-            } catch { throw $_ }
+            Invoke-WebRequestWithRetry -Uri "${VOID_CDN}${LatestVersion}" -OutFile $TarFile | Out-Null
+            if (-not (Test-Path -Path $TarFile -PathType Leaf)) {
+                throw "Download completed without creating expected tarball: $TarFile"
+            }
         }
     )
 }
@@ -449,8 +677,8 @@ Invoke-Task -Name "Importing $LatestVersion" -Critical -Steps @(
     {
         # Check existing distributions
         $DistroList = wsl.exe --list --quiet | ForEach-Object { ($_ -replace "`0", "").Trim() }
-        if ($DistroList | Select-String -Pattern ([regex]::Escape($DistroName))) {
-            throw "'$DistroName' exists; unregister before reinstall - ``wsl --unregister $DistroName``"
+        if ($DistroList -contains $DistroName) {
+            throw "'$DistroName' exists; choose another with -DistroName <name>"
         }
 
         # All WSL images are named `ext4.vhdx`, so we place them in $InstallDirectory\$DistroName DIR
@@ -517,34 +745,35 @@ Invoke-Task -Name "Installing packages" -Critical -Steps @(
 Invoke-Task -Name "Importing bootstrap files" -Critical -Steps @(
     {
         $DotConfigPath = Join-Path -Path $RootPath -ChildPath ".config"
-
-        if (Test-Path $DotConfigPath) {
-            $Log = wsl.exe -d $DistroName -u root -- /bin/true 2>&1
-            if ($LASTEXITCODE -ne 0) { throw "Distro '$DistroName' failed to start - $Log" }
-
-            Push-Location $DotConfigPath
-            try {
-                $Log = wsl.exe -d $DistroName -u root -- mkdir -p /tmp/bootstrap
-                if ($LASTEXITCODE -ne 0) { throw "Failed to create bootstrap staging DIR - $Log" }
-
-                # Windows `tar.exe` compress -> Pipe -> Linux `tar` extraction directly into `/tmp/bootstrap`
-                $Log = cmd.exe /c "tar -cf - . | wsl.exe -d $DistroName -u root -- tar -xf - -C /tmp/bootstrap" 2>&1
-                if ($LASTEXITCODE -ne 0) { throw "Failed to compress & extract boostrap file - $Log" }
-
-                #  Let Linux handle CRLF -> LF conversion (ONLY in `/tmp/bootstrap`)
-                $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "find /tmp/bootstrap -type f -exec dos2unix --quiet --safe {} +" 2>&1
-                if ($LASTEXITCODE -ne 0) { throw "Failed to handle CRLF -> LF conversion - $Log" }
-
-                # Copy sanitised files to their correct locations in `/`
-                $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "cp -a /tmp/bootstrap/. / && rm -rf /tmp/bootstrap" 2>&1
-                if ($LASTEXITCODE -ne 0) { throw "Failed to copy sanitised bootstrap files - $Log" }
-
-                # Normalize permissions for `/etc/skel` contents
-                $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "find /etc/skel -type d -exec chmod 755 {} + && find /etc/skel -type f -exec chmod 644 {} +" 2>&1
-                if ($LASTEXITCODE -ne 0) { throw "Failed to normalize /etc/skel permissions - $Log" }
-            }
-            finally { Pop-Location }
+        if (-not (Test-Path -Path $DotConfigPath -PathType Container)) {
+            throw "Missing bootstrap directory - '$DotConfigPath'"
         }
+
+        $Log = wsl.exe -d $DistroName -u root -- /bin/true 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Distro '$DistroName' failed to start - $Log" }
+
+        Push-Location $DotConfigPath
+        try {
+            $Log = wsl.exe -d $DistroName -u root -- mkdir -p /tmp/bootstrap
+            if ($LASTEXITCODE -ne 0) { throw "Failed to create bootstrap staging DIR - $Log" }
+
+            # Windows `tar.exe` compress -> Pipe -> Linux `tar` extraction directly into `/tmp/bootstrap`
+            $Log = cmd.exe /c "tar -cf - . | wsl.exe -d $DistroName -u root -- tar -xf - -C /tmp/bootstrap" 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Failed to compress & extract boostrap file - $Log" }
+
+            #  Let Linux handle CRLF -> LF conversion (ONLY in `/tmp/bootstrap`)
+            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "find /tmp/bootstrap -type f -exec dos2unix --quiet --safe {} +" 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Failed to handle CRLF -> LF conversion - $Log" }
+
+            # Copy sanitised files to their correct locations in `/`
+            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "cp -a /tmp/bootstrap/. / && rm -rf /tmp/bootstrap" 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Failed to copy sanitised bootstrap files - $Log" }
+
+            # Normalize permissions for `/etc/skel` contents
+            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "find /etc/skel -type d -exec chmod 755 {} + && find /etc/skel -type f -exec chmod 644 {} +" 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Failed to normalize /etc/skel permissions - $Log" }
+        }
+        finally { Pop-Location }
     }
 )
 
@@ -571,19 +800,15 @@ Invoke-Task -Name "Configuring ``runit`` services" -Critical -Steps @(
             "fcron"         # Cron daemon
         )
 
-        $CommandList = [System.Collections.Generic.List[string]]::new()
-
         foreach ($Service in $Services) {
-            # test -d /etc/sv/$Service && ln -sfn /etc/sv/$Service /etc/runit/runsvdir/default/ || echo "WARN: /etc/sv/$Service not found" >&2
             # Target the persistent `/etc/runit/runsvdir/default/` NOT `/var/service/`
-            $CommandList.Add("ln -s /etc/sv/$Service /etc/runit/runsvdir/default/ 2>/dev/null || true")
-        }
+            $Command = "if [ ! -d /etc/sv/$Service ]; then echo 'missing required service: $Service' >&2; exit 1; fi; ln -sfn /etc/sv/$Service /etc/runit/runsvdir/default/$Service"
+            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Failed to configure runit service '$Service' - $Log" }
 
-        if ($CommandList.Count -gt 0) {
-            $LinuxCmd = $CommandList -join " && "
-            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$LinuxCmd" 2>&1
-
-            if ($LASTEXITCODE -ne 0) { throw "Failed to configure runit services - $Log" }
+            $Command = "test -L /etc/runit/runsvdir/default/$Service"
+            $Log = wsl.exe -d $DistroName -u root -- /bin/sh -c "$Command" 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Service symlink missing after configuration for '$Service' - $Log" }
         }
     },
     {
@@ -591,9 +816,7 @@ Invoke-Task -Name "Configuring ``runit`` services" -Critical -Steps @(
         Apply strict log rotation limits to `svlogd` through a `config` file (1MB max, keep 2 files)
         inside EVERY `socklog` subdirectory.
         #>
-        $FindSocklog = "find /var/log/socklog/ -maxdepth 1 -type d -not -path /var/log/socklog/"
-        $WriteConfig = 'while read -r dir; do printf "s1048576\nn2" | tee "$dir/config" > /dev/null; done'
-        $Command = "$FindSocklog | $WriteConfig"
+        $Command = 'if [ ! -d /var/log/socklog ]; then echo "Missing /var/log/socklog directory" >&2; exit 1; fi; HasDirs=0; for dir in /var/log/socklog/*; do if [ -d "$dir" ]; then HasDirs=1; printf "s1048576\nn2" > "$dir/config"; fi; done; if [ "$HasDirs" -eq 0 ]; then echo "No socklog output directories found under /var/log/socklog" >&2; exit 1; fi'
 
         $Log = wsl.exe -d $DistroName -u root -- /bin/bash -c "$Command" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Failed to apply `socklog` policies - $Log" }
@@ -604,7 +827,7 @@ Invoke-Task -Name "Configuring ``runit`` services" -Critical -Steps @(
 # CONFIGURE WINDOWS GIT INTEROP
 # -----------------------------------------------------------------------------
 
-Invoke-Task -Name "Configuring Git" -Steps @(
+Invoke-Task -Name "Configuring ``Git`` settings" -Steps @(
     {
         try {
             $GitCmdPath = (Get-Command git -ErrorAction Stop).Source
@@ -656,7 +879,7 @@ Invoke-Task -Name "Configuring Git" -Steps @(
 # CREATING DEFAULT USER
 # -----------------------------------------------------------------------------
 
-Invoke-Task -Name "Creating default user ``void``" -Critical -Steps @(
+Invoke-Task -Name "Creating default ``void`` user " -Critical -Steps @(
     {
         <#
         Create a default user `void` with a home directory, `bash` default login shell

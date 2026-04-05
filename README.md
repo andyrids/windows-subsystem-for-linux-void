@@ -116,11 +116,19 @@ The script first checks if the `WslService` is running, enabling it if necessary
 
 ### (2) Distribution Import
 
-The downloaded tarball is imported using `wsl.exe --import`. The default installation path is `%USERPROFILE%\WSL\Void`, but this can be customized via the `-InstallDirectory` parameter and when the script asks for confirmation.
+The downloaded tarball is imported using `wsl.exe --import`. If `-InstallDirectory` is not provided, the script now defaults automatically to `%USERPROFILE%\WSL\Void` (no interactive path prompt).
 
 ```ps1
 . .\windows-subsystem-for-linux-void\Install-VoidLinux.ps1 -InstallDirectory "C:\WSL\Void"
 ```
+
+You can also provide a custom distro name with `-DistroName` to run a side-by-side test installation without unregistering an existing Void distro.
+
+```ps1
+. .\windows-subsystem-for-linux-void\Install-VoidLinux.ps1 -DistroName "Void-Test"
+```
+
+If the default distro name already exists and `-DistroName` is not set, the script prompts for a unique name.
 
 ![install directory](/docs/img/install-directory-check.png)
 

@@ -48,9 +48,11 @@ alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
 
+JUST_COMPLETIONS="$HOME/.local/share/bash-completion/completions"
+
 # Load any Just recipe completions
-if [ -f "$HOME/.just-completions.bash" ]; then
-    source ~/.just-completions.bash
+if [ -f "$JUST_COMPLETIONS/just" ]; then
+    source "$JUST_COMPLETIONS/just"
 fi
 
 # Load environment variables

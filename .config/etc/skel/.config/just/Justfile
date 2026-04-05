@@ -3,11 +3,21 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 # Pre-emptively add `uv` & `pnpm` default install paths to `$PATH`
 export PATH := env("HOME") + "/.local/share/pnpm:" + env("HOME") + "/.local/bin:" + env("PATH")
+export JUST_COMPLETIONS := env("HOME") + "/.local/share/bash-completion/completions"
 
 [default]
 [doc("Shorthand for `just --list`")]
 @_:
   just --justfile {{justfile()}} --list
+
+
+[doc("Update `Just` bash completions")]
+[group("DEV")]
+just-completions:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p "$JUST_COMPLETIONS"
+  just --completions bash > "$JUST_COMPLETIONS/just"
 
 
 [doc("Run `sudo xbps-install -Su`")]
@@ -109,3 +119,8 @@ install-dive: xbps-su
   else
     echo "Found existing dive package"
   fi
+
+
+[doc("Install all development tools[idempotent]")]
+[group("DEV")]
+install-all: install-uv install-pnpm install-podman install-podman-compose install-dive install-justlsp
