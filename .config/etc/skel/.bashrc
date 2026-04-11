@@ -48,6 +48,11 @@ alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
 
+# Common aliases for Just
+alias j='just'
+alias jg='just -g'
+alias justg='just -g'
+
 JUST_COMPLETIONS="$HOME/.local/share/bash-completion/completions"
 
 # Load any Just recipe completions

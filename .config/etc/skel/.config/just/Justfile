@@ -123,4 +123,4 @@ install-dive: xbps-su
 [doc("Install all development tools [idempotent]")]
 [group("DEV")]
 install-all: install-uv install-pnpm install-podman install-podman-compose install-dive install-justlsp
-  @echo "For `pnpm` run: source $HOME/.bashrc"
+  @echo "For pnpm run: source $HOME/.bashrc"
