@@ -53,7 +53,6 @@ install-pnpm:
 
   if ! command -v pnpm >/dev/null 2>&1 && [ ! -f "$HOME/.local/share/pnpm/pnpm" ]; then
     wget -qO- https://get.pnpm.io/install.sh | bash -
-    echo "RUN: source $HOME/.bashrc"
   else
     echo "Found existing pnpm package"
   fi
@@ -121,6 +120,7 @@ install-dive: xbps-su
   fi
 
 
-[doc("Install all development tools[idempotent]")]
+[doc("Install all development tools [idempotent]")]
 [group("DEV")]
 install-all: install-uv install-pnpm install-podman install-podman-compose install-dive install-justlsp
+  @echo "For `pnpm` run: source $HOME/.bashrc"
