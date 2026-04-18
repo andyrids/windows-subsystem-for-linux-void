@@ -58,6 +58,38 @@ JUST_COMPLETIONS="$HOME/.local/share/bash-completion/completions"
 # Load any Just recipe completions
 if [ -f "$JUST_COMPLETIONS/just" ]; then
     source "$JUST_COMPLETIONS/just"
+
+    # Reuse `just` completion for global aliases by injecting `-g`.
+    if complete -p just >/dev/null 2>&1; then
+        _just_complete_spec="$(complete -p just 2>/dev/null)"
+
+        if [[ "$_just_complete_spec" =~ -F[[:space:]]+([^[:space:]]+) ]]; then
+            _just_complete_func="${BASH_REMATCH[1]}"
+
+            _just_global_alias_completion() {
+                local -a _orig_words=("${COMP_WORDS[@]}")
+                local _orig_cword="$COMP_CWORD"
+
+                COMP_WORDS=(just -g "${_orig_words[@]:1}")
+                COMP_CWORD=$((_orig_cword + 1))
+
+                "$_just_complete_func"
+
+                COMP_WORDS=("${_orig_words[@]}")
+                COMP_CWORD="$_orig_cword"
+            }
+
+            _just_alias_spec="${_just_complete_spec% just}"
+            _just_alias_spec="${_just_alias_spec/-F $_just_complete_func/-F _just_global_alias_completion}"
+
+            eval "${_just_alias_spec} jg"
+            eval "${_just_alias_spec} justg"
+
+            unset _just_alias_spec
+        fi
+
+        unset _just_complete_spec
+    fi
 fi
 
 # Load environment variables
