@@ -58,10 +58,10 @@ install-pnpm:
   fi
 
 
-[doc("Install the LTS version of `Node.js` [idempotent]")]
+[doc("Install LTS version of `Node.js` [idempotent]")]
 [group("DEV")]
 pnpm-env: install-pnpm
-	pnpm env use --global lts && pnpm env list
+  pnpm runtime set node lts -g
 
 
 [doc("Update `pnpm` `Node.js` package manager")]
