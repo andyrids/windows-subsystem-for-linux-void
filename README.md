@@ -152,6 +152,7 @@ After the upgrade, the following packages are installed:
 - **socklog** - `syslog` replacement that integrates perfectly with `runit`
 - **socklog-void** - Void-specific integration package for `socklog`
 - **dos2unix** - utility used to convert text files between DOS/Windows format
+- **bash-completion** - framework that provides Tab completion for system tools (`git`, `xbps-*`, `podman`, etc.)
 
 ### (4) Configuration Overlay
 
@@ -226,3 +227,33 @@ just -g install-uv
 just -g install-pnpm
 just -g pnpm-env
 ```
+
+## Bash Completions
+
+The `bash-completion` package provides the framework that lazily loads Tab completion scripts for system tools. Packages such as `git`, `xbps-*`, `podman`, and `just` each install their own completion scripts into `/usr/share/bash-completion/completions/` — `bash-completion` is the loader that activates them.
+
+The `.bashrc` sources `just` completions eagerly at shell startup (user-local `~/.local/share/bash-completion/completions/just` takes precedence over the system file at `/usr/share/bash-completion/completions/just`) so that the `j` alias can be wired immediately:
+
+```bash
+# j is a shorthand alias for just
+alias j='just'
+
+# Wire j to use the same Tab completion as just
+eval "$(complete -p just | sed 's/ just$/ j/')"
+```
+
+The `just-completions` recipe regenerates the user-local completion file from the currently installed version of `just`:
+
+```bash
+just -g just-completions
+```
+
+This is only needed after upgrading `just` to a new version (to pick up any changes to the completion script) or to replace the lazy bootstrap seed (`source <(JUST_COMPLETE=bash just)`) with a pre-generated static file. In normal use the fallback to `/usr/share/bash-completion/completions/just` means completions work regardless.
+
+| Command | Completes |
+| --- | --- |
+| `just <Tab>` | Local Justfile recipes |
+| `j <Tab>` | Local Justfile recipes (same as `just`) |
+| `just -g <Tab>` | Global Justfile recipes |
+| `git <Tab>` | Git subcommands |
+| `xbps-install <Tab>` | xbps flags and options |
