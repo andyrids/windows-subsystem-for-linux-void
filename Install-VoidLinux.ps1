@@ -714,7 +714,8 @@ Invoke-Task -Name "Installing packages" -Critical -Steps @(
             "wget",
             "socklog",
             "socklog-void",
-            "dos2unix"
+            "dos2unix",
+            "bash-completion"
         )
         # Attempt an upgrade of `xbps`
         $Command = "xbps-install -Su --yes xbps"
