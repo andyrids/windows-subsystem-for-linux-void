@@ -1,126 +1,100 @@
 # Strict mode; errexit, nounset & xtrace pipefail
 set shell := ["bash", "-euo", "pipefail", "-c"]
+set guards
 
-# Pre-emptively add `uv` & `pnpm` default install paths to `$PATH`
-export PATH := env("HOME") + "/.local/share/pnpm:" + env("HOME") + "/.local/bin:" + env("PATH")
 export JUST_COMPLETIONS := env("HOME") + "/.local/share/bash-completion/completions"
+
+export PNPM_HOME := env("HOME") / ".local/share/pnpm"
+export UV_INSTALL_DIR := env("HOME") / ".local/bin"
+
+
+# UTILITY - Recipes
+# -----------------------------------------------
 
 [default]
 [doc("Shorthand for `just --list`")]
 @_:
-  just --justfile {{justfile()}} --list
+    just --justfile {{justfile()}} --list
 
+_log COLOUR MSG:
+    @echo "{{ BOLD + COLOUR }}[INFO] {{ MSG }}{{ NORMAL }}"
 
-[doc("Update `Just` bash completions")]
-[group("DEV")]
-just-completions:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  mkdir -p "$JUST_COMPLETIONS"
-  just --completions bash > "$JUST_COMPLETIONS/just"
+# INSTALL - Recipes
+# -----------------------------------------------
 
+[doc("Install Astral `uv` package manager [idempotent]")]
+[env("PATH", `[[ ":$PATH:" == *":$UV_INSTALL_DIR:"* ]] && echo "$PATH" || echo "$UV_INSTALL_DIR:$PATH"`)]
+[group("INSTALL")]
+install-uv: && (_log BLUE "UV IS INSTALLED")
+    #!/usr/bin/env bash
+    if ! command -v uv >/dev/null 2>&1; then
+        wget -qO- https://astral.sh/uv/install.sh | bash
+    fi
 
-[doc("Run `sudo xbps-install -Su`")]
-[group("XBPS")]
-xbps-su:
-  sudo xbps-install -Su
+[doc("Install `pnpm` package manager [idempotent]")]
+[env("PATH", `[[ ":$PATH:" == *":$PNPM_HOME/bin:"* ]] && echo "$PATH" || echo "$PNPM_HOME/bin:$PATH"`)]
+[group("INSTALL")]
+install-pnpm: && (_log BLUE "PNPM IS INSTALLED")
+    #!/usr/bin/env bash
+    if ! command -v pnpm >/dev/null 2>&1; then
+        wget -qO- https://get.pnpm.io/install.sh | bash -
+    fi
 
-
-[doc("Run `sudo xbps-remove -Oo`")]
-[group("XBPS")]
-xbps-oo:
-  sudo xbps-remove -Oo
-
-
-[doc("Install Astral `uv` Python package manager [idempotent]")]
-[group("DEV")]
-install-uv:
-  #!/usr/bin/env bash
-  set -euo pipefail
-
-  if ! command -v uv >/dev/null 2>&1 && [ ! -f "$HOME/.local/bin/uv" ]; then
-    wget -qO- https://astral.sh/uv/install.sh | bash
-  else
-    echo "Found existing uv package"
-  fi
-
-
-[doc("Install `pnpm` `Node.js` package manager [idempotent]")]
-[group("DEV")]
-install-pnpm:
-  #!/usr/bin/env bash
-  set -euo pipefail
-
-  if ! command -v pnpm >/dev/null 2>&1 && [ ! -f "$HOME/.local/share/pnpm/pnpm" ]; then
-    wget -qO- https://get.pnpm.io/install.sh | bash -
-  else
-    echo "Found existing pnpm package"
-  fi
-
-
-[doc("Install LTS version of `Node.js` [idempotent]")]
-[group("DEV")]
-pnpm-env: install-pnpm
-  pnpm runtime set node lts -g
-
-
-[doc("Update `pnpm` `Node.js` package manager")]
-[group("DEV")]
-pnpm-update: install-pnpm
-	pnpm self-update
-
+[doc("Install `Node.js` LTS globally [idempotent]")]
+[env("PATH", `[[ ":$PATH:" == *":$PNPM_HOME/bin:"* ]] && echo "$PATH" || echo "$PNPM_HOME/bin:$PATH"`)]
+[group("INSTALL")]
+install-pnpm-runtime: install-pnpm && (_log BLUE "NODE IS INSTALLED")
+    #!/usr/bin/env bash
+    if ! command -v node >/dev/null 2>&1; then
+        pnpm runtime set node lts -g
+    fi
+    pnpm list -g node
 
 [doc("Install `podman` container engine [idempotent]")]
-[group("DEV")]
-install-podman: xbps-su
-  #!/usr/bin/env bash
-  set -euo pipefail
-
-  if ! command -v podman >/dev/null 2>&1 && [ ! -f "/usr/sbin/podman" ]; then
-    sudo xbps-install podman
-  else
-    echo "Found existing podman package"
-  fi
-
-
-[doc("Install `just-lsp` language server for `Just` [idempotent]")]
-[group("DEV")]
-install-justlsp: xbps-su
-  #!/usr/bin/env bash
-  set -euo pipefail
-
-  if ! command -v just-lsp >/dev/null 2>&1 && [ ! -f "/usr/sbin/just-lsp" ]; then
-    sudo xbps-install just-lsp
-  else
-    echo "Found existing just-lsp package"
-  fi
-
+[group("INSTALL")]
+install-podman: update-packages && (_log BLUE "PODMAN IS INSTALLED")
+    #!/usr/bin/env bash
+    if ! command -v podman >/dev/null 2>&1; then
+        sudo xbps-install podman
+    fi
 
 [doc("Install `podman-compose` parser [idempotent]")]
-[group("DEV")]
-install-podman-compose: install-uv
-  #!/usr/bin/env bash
-  set -euo pipefail
+[env("PATH", `[[ ":$PATH:" == *":$UV_INSTALL_DIR:"* ]] && echo "$PATH" || echo "$UV_INSTALL_DIR:$PATH"`)]
+[group("INSTALL")]
+install-podman-compose: install-uv && (_log BLUE "PODMAN-COMPOSE IS INSTALLED")
+    #!/usr/bin/env bash
+    if ! command -v podman-compose >/dev/null 2>&1; then
+        uv tool install podman-compose
+    fi
 
-  if ! command -v podman-compose >/dev/null 2>&1 && [ ! -f "$HOME/.local/bin/podman-compose" ]; then
-    uv tool install podman-compose
-  else
-    echo "Found existing podman-compose package"
-  fi
+[doc("Install `just-lsp` language server for `Just` [idempotent]")]
+[group("INSTALL")]
+install-justlsp: update-packages && (_log BLUE "JUST-LSP IS INSTALLED")
+    #!/usr/bin/env bash
+    if ! command -v just-lsp >/dev/null 2>&1; then
+        sudo xbps-install just-lsp
+    fi
 
+[doc("Install `dive` image exploration tool")]
+[group("INSTALL")]
+install-dive: update-packages && (_log BLUE "DIVE IS INSTALLED")
+    #!/usr/bin/env bash
+    if ! command -v dive >/dev/null 2>&1; then
+        sudo xbps-install dive
+    fi
 
-[doc("Install `dive` `Docker` image exploration tool")]
-[group("DEV")]
-install-dive: xbps-su
-  #!/usr/bin/env bash
-  if ! command -v dive >/dev/null 2>&1 && [ ! -f "/usr/sbin/dive" ]; then
-    sudo xbps-install dive
-  else
-    echo "Found existing dive package"
-  fi
+# UPDATE - Recipes
+# -----------------------------------------------
 
+[doc("Run `sudo xbps-install -Su`")]
+[arg("FLAGS", help="Optional `xbps-install` FLAGS")]
+[group("UPDATE")]
+update-packages *FLAGS: (_log BLUE "UPDATING PACKAGES")
+    sudo xbps-install -Su {{FLAGS}}
 
-[doc("Install all development tools [idempotent]")]
-[group("DEV")]
-install-all: install-uv install-pnpm install-podman install-podman-compose install-dive install-justlsp
-  @echo "For pnpm run: source $HOME/.bashrc"
+[doc("Update `Just` bash completions")]
+[group("UPDATE")]
+update-just-completions:
+    #!/usr/bin/env bash
+    mkdir -p "$JUST_COMPLETIONS"
+    just --completions bash > "$JUST_COMPLETIONS/just"

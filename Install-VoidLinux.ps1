@@ -16,6 +16,10 @@
 .PARAMETER DistroName
     Optional WSL distribution name. Defaults to `Void-<version>`.
 
+.PARAMETER Architecture
+    Target Void Linux architecture. Supported values: `x86_64`, `x86_64-musl`, `aarch64`,
+    `aarch64-musl`. Defaults to the host architecture (`AMD64` -> `x86_64`, `ARM64` -> `aarch64`).
+
 .LINK
     https://github.com/andyrids/windows-subsystem-for-linux-void
 #>
@@ -24,7 +28,10 @@ param(
     [Parameter(Mandatory=$false)]
     [string]$InstallDirectory,
     [Parameter(Mandatory=$false)]
-    [string]$DistroName
+    [string]$DistroName,
+    [Parameter(Mandatory=$false)]
+    [ValidateSet("x86_64", "x86_64-musl", "aarch64", "aarch64-musl")]
+    [string]$Architecture
 )
 
 $Script:ImageImported = $false
@@ -334,27 +341,33 @@ function Invoke-TerminateDistribution {
 function Get-LatestRootfsVersion {
     <#
     .SYNOPSIS
-        Resolves the latest Void x86_64 ROOTFS tarball from CDN links.
+        Resolves the latest Void Linux ROOTFS tarball for a given architecture from CDN links.
 
     .DESCRIPTION
-        Parses ROOTFS filenames, validates their YYYYMMDD date token and returns
-        the newest version by date.
+        Parses ROOTFS filenames for the specified architecture, validates their YYYYMMDD date
+        token and returns the newest version by date.
 
     .PARAMETER Links
         Collection of links from Invoke-WebRequest response.
 
+    .PARAMETER Architecture
+        Target Void Linux architecture (e.g. `x86_64`, `x86_64-musl`, `aarch64`, `aarch64-musl`).
+
     .EXAMPLE
-        $VersionInfo = Get-LatestRootfsVersion -Links $Response.Links
+        $VersionInfo = Get-LatestRootfsVersion -Links $Response.Links -Architecture 'x86_64'
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
         [Object[]]
-        $Links
+        $Links,
+        [Parameter(Mandatory)]
+        [string]
+        $Architecture
     )
 
     process {
-        $CandidatePattern = '^void-x86_64-ROOTFS-(\d{8})\.tar\.xz$'
+        $CandidatePattern = "^void-$([regex]::Escape($Architecture))-ROOTFS-(\d{8})\.tar\.xz$"
 
         $Candidates = foreach ($Link in $Links) {
             if (-not $Link.href) { continue }
@@ -480,6 +493,10 @@ if ([string]::IsNullOrWhiteSpace($InstallDirectory)) {
     $InstallDirectory = $DEFAULT_WSL_PATH
 }
 
+if ([string]::IsNullOrWhiteSpace($Architecture)) {
+    $Architecture = switch ($env:PROCESSOR_ARCHITECTURE) { 'ARM64' { 'aarch64' } default  { 'x86_64' } }
+}
+
 Invoke-Task -Name "Checking installation PATH" -Critical -Steps @(
     {
         if ($InstallDirectory -match '[\x00-\x1F]') {
@@ -548,7 +565,7 @@ Invoke-Task -Name "Checking Void CDN" -Critical -Steps @(
         $Response = Invoke-WebRequestWithRetry -Uri $VOID_CDN
         if ($Response.StatusCode -ne 200) { throw "$VOID_CDN - HTTP $($Response.StatusCode)" }
 
-        $VersionInfo = Get-LatestRootfsVersion -Links $Response.Links
+        $VersionInfo = Get-LatestRootfsVersion -Links $Response.Links -Architecture $Script:Architecture
         $Script:LatestVersion = $VersionInfo.LatestVersion
         $Script:VersionString = $VersionInfo.VersionString
 
@@ -698,7 +715,7 @@ Invoke-Task -Name "Importing $LatestVersion" -Critical -Steps @(
 # UPDATE & UPGRADE PACKAGES
 # -----------------------------------------------------------------------------
 
-Invoke-Task -Name "Installing packages" -Critical -Steps @(
+Invoke-Task -Name "Updating/upgrading & installing packages " -Critical -Steps @(
     {
         $Packages = @(
             "util-linux",

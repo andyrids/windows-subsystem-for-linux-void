@@ -9,7 +9,7 @@ This repository contains a Powershell bootstrap script, which automates the inst
 
 ## **Features**
 
-* **Void CDN**: Scrapes the Void Linux CDN & downloads the latest x86_64 ROOTFS tarball.
+* **Void CDN**: Scrapes the Void Linux CDN & downloads the latest ROOTFS tarball.
 * **Bootstrap Configuration**: Copies local bootstrap files (`.config/`) to the distro.
 * **Linux Skeleton Files**: Ensures each new user starts with default dotfiles (`.bashrc`, `.vimrc`, etc.).
 * **Configures runit**: Configures the `runit` init system and essential services (`udevd`, `socklog`, `fcron`) for WSL.
@@ -33,14 +33,30 @@ Open a `PowerShell` terminal as **Administrator** and clone this repository.
 
 ```ps1
 git clone --depth=1 git@github.com:andyrids/windows-subsystem-for-linux-void.git
+cd .\windows-subsystem-for-linux-void\
 ```
 
-Run the `PowerShell` installation script.
+### Running the Installation Script
+
+You can pass a custom installation directory with `-InstallDirectory`, which defaults to `%USERPROFILE%\WSL\Void`. A custom name for the distribution can be set through `-DistroName`. The script will attempt to identify your system architecture and download the appropriate ROOTFS version, but this can be manually set via `-Architecture`:
+
+1. `x86_64`
+2. `x86_64-musl`
+3. `aarch64`
+4. `aarch64-musl`
+
+Default installation:
 
 ```ps1
-cd .\windows-subsystem-for-linux-void\
 . Install-VoidLinux.ps1
 ```
+
+Custom installation:
+
+```ps1
+. Install-VoidLinux.ps1 -InstallDirectory C:\WSL\Void -DistroName Void -Architecture x86_64
+```
+
 
 If you have `Just` installed, there is a [`justfile`](Justfile) provided with an `install` recipe. 
 
