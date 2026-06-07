@@ -233,14 +233,17 @@ There is a global `$HOME/.config/just/Justfile`, which contains some potentially
 just -g
 ```
 
+>[!tip]
+>The alias `j` has been set for `Just` - e.g. `j -g`
+
 ![Justfile](/docs/img/justfile-recipes.png)
 
 For example, there is a recipe for the installation of the Astral `uv` Python package manager and for `pnpm`. To install `uv`, `pnpm` and the LTS version of `Node.js`, you could run the following recipes:
 
 ```bash
-just -g install-uv
-just -g install-pnpm
-just -g pnpm-env
+j -g install-uv
+j -g install-pnpm
+j -g install-pnpm-runtime
 ```
 
 ## Bash Completions
