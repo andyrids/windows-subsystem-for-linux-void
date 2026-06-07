@@ -36,6 +36,8 @@ git clone --depth=1 git@github.com:andyrids/windows-subsystem-for-linux-void.git
 cd .\windows-subsystem-for-linux-void\
 ```
 
+![installing Void](docs/img/install-start-void.png)
+
 ### Running the Installation Script
 
 You can pass a custom installation directory with `-InstallDirectory`, which defaults to `%USERPROFILE%\WSL\Void`. A custom name for the distribution can be set through `-DistroName`. The script will attempt to identify your system architecture and download the appropriate ROOTFS version, but this can be manually set via `-Architecture`:
@@ -145,8 +147,6 @@ You can also provide a custom distro name with `-DistroName` to run a side-by-si
 ```
 
 If the default distro name already exists and `-DistroName` is not set, the script prompts for a unique name.
-
-![install directory](/docs/img/install-directory-check.png)
 
 ### (3) Package Repository Update & Upgrades
 
